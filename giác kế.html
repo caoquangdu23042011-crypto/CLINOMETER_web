@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Giác Kế Clinometer - STEM Toán 9</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;800;900&display=swap');
+        body { font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; }
+
+        /* Tối ưu hóa Slider sang tone Hồng Nhạt (pink-300) cho thanh trượt */
+        input[type=range] { appearance: none; background: transparent; }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%; height: 6px; cursor: pointer; background: #f8fafc; border-radius: 10px;
+            border: 1px solid #e2e8f0;
+        }
+        /* Núm vặn - Giữ nguyên form 22px và viền 3px của cậu nhưng PHÁT SÁNG */
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 22px;
+            width: 22px;
+            border-radius: 50%;
+            background: #f9a8d4; /* Màu hồng gốc của cậu */
+            cursor: pointer;
+            border: 3px solid white; /* Viền trắng dày 3px cực nét */
+            margin-top: -9px;
+
+            /* HIỆU ỨNG PHÁT SÁNG:
+               1. Lớp bóng hồng lan tỏa rộng ra ngoài (0 0 15px)
+               2. Lớp bóng trắng bên trong (inset) tạo độ bóng bẩy
+            */
+            box-shadow:
+                0 0 15px rgba(244, 114, 182, 0.7),
+                0 4px 6px rgba(0, 0, 0, 0.1),
+                inset 0 0 6px rgba(255, 255, 255, 0.8);
+
+            transition: all 0.2s ease;
+        }
+
+        /* Khi đang nhấn giữ để vặn - Sáng rực rỡ hơn */
+        input[type=range]:active::-webkit-slider-thumb {
+            transform: scale(1.2);
+            background: #f472b6; /* Đậm hơn khi chạm */
+            box-shadow:
+                0 0 25px rgba(244, 114, 182, 1),
+                inset 0 0 8px rgba(255, 255, 255, 1);
+        }
+
+        /* Input số tối giản */
+        .num-input {
+            background: transparent;
+            border-bottom: 2px solid #f9a8d4;
+            outline: none;
+            width: 80px;
+            text-align: right;
+            font-weight: 800;
+            color: #1e293b;
+        }
+
+        .simulation-container {
+            aspect-ratio: 16 / 9;
+            max-height: 260px;
+        }
+        @media (min-width: 1024px) {
+            .simulation-container {
+                aspect-ratio: auto;
+                max-height: none;
+                height: 380px;
+            }
+        }
+
+        /* Custom scrollbar cho bảng */
+        .custom-scroll::-webkit-scrollbar {
+            height: 6px;
+        }
+        .custom-scroll::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 10px;
+        }
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: #f9a8d4;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body class="bg-[#45c2c9]">
+    <div id="root"></div>
+    {% raw %}
+    <script type="text/babel">
+        const { useState, useMemo, useEffect, useRef } = React;
+
+        const EditableNumber = ({ value, min, max, onChange, unit, isInt = false }) => {
+            const [isEditing, setIsEditing] = useState(false);
+            const [tempValue, setTempValue] = useState(value.toString());
+            const inputRef = useRef(null);
+
+            useEffect(() => {
+                if (isEditing && inputRef.current) {
+                    inputRef.current.focus();
+                    inputRef.current.select();
+                }
+            }, [isEditing]);
+
+            const handleBlur = () => {
+                let num = parseFloat(tempValue);
+                if (isNaN(num)) num = value;
+                num = Math.max(min, Math.min(max, num));
+                const finalVal = isInt ? Math.round(num) : parseFloat(num.toFixed(2));
+                onChange(finalVal);
+                setTempValue(finalVal.toString());
+                setIsEditing(false);
+            };
+
+            const handleKeyDown = (e) => {
+                if (e.key === 'Enter') handleBlur();
+                if (e.key === 'Escape') {
+                    setTempValue(value.toString());
+                    setIsEditing(false);
+                }
+            };
+
+            if (isEditing) {
+                return (
+                    <div className="flex items-center">
+                        <input
+                            ref={inputRef}
+                            type="number"
+                            value={tempValue}
+                            onChange={(e) => setTempValue(e.target.value)}
+                            onBlur={handleBlur}
+                            onKeyDown={handleKeyDown}
+                            className="num-input text-2xl tabular-nums"
+                            step={isInt ? "1" : "0.01"}
+                        />
+                        <span className="text-[14px] text-slate-400 ml-1 font-bold italic">{unit}</span>
+                    </div>
+                );
+            }
+
+            return (
+                <button
+                    onClick={() => setIsEditing(true)}
+                    className="text-2xl font-black text-pink-400 tabular-nums hover:text-rose-600 transition-colors"
+                >
+                    {value}<span className="text-[14px] text-slate-400 ml-1 font-bold italic">{unit}</span>
+                </button>
+            );
+        };
+
+        const App = () => {
+            const [a, setA] = useState(1.5);
+            const [d, setD] = useState(10);
+            const [alpha, setAlpha] = useState(35);
+
+            // State cho Bảng thực hành
+            const [measurements, setMeasurements] = useState([]);
+            const [showTable, setShowTable] = useState(false);
+            const [maxRecords, setMaxRecords] = useState(5);
+
+            const h = useMemo(() => {
+                const alphaRad = (alpha * Math.PI) / 180;
+                const result = a + d * Math.tan(alphaRad);
+                return parseFloat(result.toFixed(2));
+            }, [a, d, alpha]);
+
+            const averageH = useMemo(() => {
+                if (measurements.length === 0) return 0;
+                const sum = measurements.reduce((acc, curr) => acc + curr.h, 0);
+                return parseFloat((sum / measurements.length).toFixed(2));
+            }, [measurements]);
+
+            // Hàm xử lý bảng
+            const addMeasurement = () => {
+                if (measurements.length >= maxRecords) return;
+                const newRecord = {
+                    id: Date.now(),
+                    a,
+                    d,
+                    alpha,
+                    h
+                };
+                setMeasurements([...measurements, newRecord]);
+            };
+
+            const removeMeasurement = (id) => {
+                setMeasurements(measurements.filter(m => m.id !== id));
+            };
+
+            const clearAll = () => {
+                setMeasurements([]);
+            };
+
+            const svgW = 500, svgH = 260;
+            const virtualHeight = Math.max(h, a) + 2.0;
+            const virtualWidth = d + 5.0;
+            const scale = Math.min((svgW - 80) / virtualWidth, (svgH - 60) / virtualHeight);
+            const startX = 70, groundY = 220;
+
+            const arcRadius = 32;
+            const alphaRad = (alpha * Math.PI) / 180;
+            const arcX = startX + arcRadius * Math.cos(-alphaRad);
+            const arcY = (groundY - a * scale) + arcRadius * Math.sin(-alphaRad);
+            const arcPath = `M ${startX + arcRadius} ${groundY - a * scale} A ${arcRadius} ${arcRadius} 0 0 0 ${arcX} ${arcY}`;
+
+            const gridLines = [];
+            for(let i=-200; i<=700; i+=25) {
+                gridLines.push(<line key={`v-${i}`} x1={i} y1="-200" x2={i} y2={500} stroke="#f1f5f9" strokeWidth="0.5" />);
+                gridLines.push(<line key={`h-${i}`} x1="-200" y1={i} x2={700} y2={i} stroke="#f1f5f9" strokeWidth="0.5" />);
+            }
+
+            return (
+                <div className="min-h-screen bg-gradient-to-b from-[#56dce0] via-[#45c2c9] to-[#3b82f6] pb-12 text-slate-900 selection:bg-cyan-100/50">
+                    <header className="p-6 text-white max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
+                        <div className="space-y-1 text-center md:text-left">
+                            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter leading-none flex flex-wrap justify-center md:justify-start items-center">
+                                {/* GIÁC KẾ */}
+                                <span className="text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.1)]">
+                                    GIÁC KẾ
+                                </span>
+
+                                {/* DẤU CÁCH: Dùng lề trái (ml-3) để tạo khoảng trống chuẩn UI */}
+                                <span className="ml-3 text-transparent bg-clip-text bg-gradient-to-br from-pink-300 to-rose-500 drop-shadow-[0_2px_4px_rgba(244,114,182,0.3)]">
+                                    CLINOMETER
+                                </span>
+                            </h1>
+
+                            {/* STEM TOÁN 9: Đổi sang slate-500 để xám sáng hơn, thanh thoát hơn */}
+                            <p className="text-[10px] md:text-xs font-bold tracking-[0.4em] text-slate-500 uppercase mt-2">
+                                STEM TOÁN 9
+                            </p>
+                        </div>
+                        {/* Ô CÔNG THỨC ĐÃ ĐƯỢC "REMAKE" */}
+                        <div className="bg-gradient-to-r from-pink-300/80 to-pink-400/90 backdrop-blur-2xl px-4 md:px-10 py-3 rounded-full border border-white/30 shadow-[0_10px_40px_-10px_rgba(244,114,182,0.5)] flex flex-row items-center justify-center gap-2 md:gap-4 group hover:scale-105 transition-transform duration-300 w-fit mx-auto whitespace-nowrap">
+                            <div className="flex flex-col items-start border-r border-white/20 pr-2 md:pr-4">
+                                <span className="text-[14px] md:text-[20px] font-black text-white uppercase tracking-tighter">CÔNG THỨC</span>
+                            </div>
+                            <div className="text-[16px] md:text-[23px] font-black italic tracking-tighter text-white drop-shadow-md">
+                                h = a + d <span className="text-pink-100">·</span> tan(α)
+                            </div>
+                        </div>
+                    </header>
+
+                    <main className="max-w-7xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-12 gap-6">
+                        {/* MÔ PHỎNG */}
+                        <div className="lg:col-span-8 bg-white rounded-[32px] p-6 shadow-2xl border border-white/50 flex flex-col overflow-hidden">
+                            <div className="flex items-center gap-3 mb-6">
+                                <div className="w-2.5 h-5 bg-pink-400 rounded-lg"></div>
+                                <h2 className="font-extrabold uppercase tracking-widest text-[14px] text-slate-800">Mô phỏng đo đạc thực tế</h2>
+                            </div>
+
+                            <div className="simulation-container bg-slate-50 rounded-[24px] border border-slate-100 overflow-hidden relative flex items-center justify-center">
+                                <svg viewBox={`0 0 ${svgW} ${svgH}`} className="w-full h-full" preserveAspectRatio="xMidYMax meet" style={{ overflow: 'visible' }}>
+                                <defs>
+                                  <linearGradient id="hGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                    <stop offset="0%" style={{ stopColor: '#f472b6', stopOpacity: 1 }} /> {/* Màu hồng pink-400 */}
+                                    <stop offset="100%" style={{ stopColor: '#e11d48', stopOpacity: 1 }} /> {/* Màu đỏ rose-600 */}
+                                  </linearGradient>
+                                </defs>
+                                    <g>{gridLines}</g>
+
+                                    {/* Mặt đất */}
+                                    <line x1="-100" y1={groundY} x2={svgW + 100} y2={groundY} stroke="#cbd5e1" strokeWidth="1.5" />
+                                    <line x1={startX} y1={groundY} x2={startX + d * scale} y2={groundY} stroke="#45c2c9" strokeWidth="1.5" strokeDasharray="12 10" opacity="0.25" />
+
+                                    {/* Cột cờ */}
+                                    <line x1={startX + d * scale} y1={groundY} x2={startX + d * scale} y2={groundY - h * scale} stroke="#0f172a" strokeWidth="2.5" strokeLinecap="round" />
+                                    <g transform={`translate(${startX + d * scale}, ${groundY - h * scale})`}>
+                                        <rect width={36} height={24} fill="#da251d" rx="1.5" />
+                                        <path d="M18,5 L19.4,9.2 L23.8,9.2 L20.2,11.8 L21.6,16 L18,13.4 L14.4,16 L15.8,11.8 L12.2,9.2 L16.6,9.2 Z" fill="#ffff00" />
+                                    </g>
+
+                                    {/* Tripod chân hồng nhạt (pink-300) */}
+                                    <g transform={`translate(${startX}, ${groundY})`}>
+                                        <line x1="0" y1="0" x2="-10" y2="0" stroke="#f9a8d4" strokeWidth="2.5" strokeLinecap="round" />
+                                        <line x1="0" y1="0" x2="10" y2="0" stroke="#f9a8d4" strokeWidth="2.5" strokeLinecap="round" />
+                                        <line x1="-8" y1="0" x2="0" y2="-12" stroke="#f9a8d4" strokeWidth="2" strokeLinecap="round" />
+                                        <line x1="8" y1="0" x2="0" y2="-12" stroke="#f9a8d4" strokeWidth="2" strokeLinecap="round" />
+                                        <line x1="0" y1="0" x2="0" y2="-12" stroke="#f9a8d4" strokeWidth="2" strokeLinecap="round" />
+                                    </g>
+
+                                    {/* Thân Giác kế màu Cyan */}
+                                    <line x1={startX} y1={groundY - 12} x2={startX} y2={groundY - a * scale} stroke="#45c2c9" strokeWidth="4" strokeLinecap="round" />
+
+                                    {/* Khớp xoay hồng nhạt */}
+                                    <circle cx={startX} cy={groundY - a * scale} r="4.5" fill="#f9a8d4" />
+
+                                    {/* Đường gióng cạnh huyền màu xanh lá */}
+                                    <line x1={startX} y1={groundY - a * scale} x2={startX + d * scale} y2={groundY - h * scale} stroke="#84cc16" strokeWidth="3" strokeLinecap="round" className="drop-shadow-[0_0_2px_rgba(132,204,22,0.6)]" />
+
+                                    {/* Đường nằm ngang */}
+                                    <line x1={startX} y1={groundY - a * scale} x2={startX + d * scale} y2={groundY - a * scale} stroke="#94a3b8" strokeWidth="1" strokeDasharray="6 4" />
+
+                                    {alpha > 0 && <path d={arcPath} fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round" opacity="0.8" />}
+
+                                    <g style={{ fontSize: '12px', fontWeight: '800' }} className="select-none text-slate-600">
+                                        {/* Chiều cao a (Sửa fill thành đỏ thẫm mờ) */}
+                                        <text x={startX - 14} y={groundY - (a * scale / 2)} textAnchor="end" fill="#881337" opacity="0.6" className="italic tabular-nums text-[11px]">a={a}m</text>
+
+                                        {/* Khoảng cách d (Sửa fill thành đỏ thẫm mờ) */}
+                                        <text x={startX + (d * scale / 2)} y={groundY + 30} textAnchor="middle" fill="#881337" opacity="0.6" className="italic tabular-nums text-[11px]">d={d}m</text>
+
+                                        {/* Góc alpha */}
+                                        <text x={startX + 48} y={groundY - a * scale - 18} fill="#6366f1" className="font-black italic tabular-nums">α={alpha}°</text>
+
+                                        {/* Chiều cao h (Đã có Gradient từ trước, giữ nguyên nhé) */}
+                                        <text x={startX + d * scale + 15} y={groundY - h * scale - 15} textAnchor="start" fill="url(#hGradient)" className="font-black italic text-xl tabular-nums">h={h}m</text>
+                                    </g>
+                                    <path d={`M ${startX + d * scale - 15} ${groundY - a * scale} L ${startX + d * scale - 15} ${groundY - a * scale - 15} L ${startX + d * scale} ${groundY - a * scale - 15}`} fill="none" stroke="#cbd5e1" strokeWidth="1" />
+                                </svg>
+                            </div>
+                        </div>
+
+                        {/* BẢNG ĐIỀU KHIỂN */}
+                        <div className="lg:col-span-4 flex flex-col gap-6">
+                            <div className="bg-white rounded-[32px] p-8 shadow-2xl border border-white/50 flex flex-col h-full">
+                                <div className="flex items-center gap-3 mb-10">
+                                    <div className="w-2.5 h-5 bg-pink-400 rounded-lg"></div>
+                                    <h2 className="font-extrabold uppercase tracking-widest text-[14px] text-slate-800">Thông số đo đạc</h2>
+                                </div>
+                                <div className="space-y-12 flex-grow">
+                                    <div className="space-y-5">
+                                        <div className="flex justify-between items-center"><span className="text-[14px] font-bold text-slate-500 lowercase tracking-wider">Chiều cao giác kế (a)</span><EditableNumber value={a} min={0} max={5} onChange={setA} unit="m" /></div>
+                                        <input type="range" min="0.1" max="3" step="0.01" value={a} onChange={(e) => setA(parseFloat(e.target.value))} className="w-full" />
+                                    </div>
+                                    <div className="space-y-5">
+                                        <div className="flex justify-between items-center"><span className="text-[14px] font-bold text-slate-500 lowercase tracking-wider">Khoảng cách đến vật (d)</span><EditableNumber value={d} min={0.1} max={50} onChange={setD} unit="m" /></div>
+                                        <input type="range" min="0.1" max="25" step="0.1" value={d} onChange={(e) => setD(parseFloat(e.target.value))} className="w-full" />
+                                    </div>
+                                    <div className="space-y-5">
+                                        <div className="flex justify-between items-center"><span className="text-[14px] font-bold text-slate-500 lowercase tracking-wider">Góc nâng (α)</span><EditableNumber value={alpha} min={0} max={85} onChange={setAlpha} unit="°" isInt={true} /></div>
+                                        <input type="range" min="0" max="85" value={alpha} onChange={(e) => setAlpha(parseInt(e.target.value))} className="w-full" />
+                                    </div>
+                                </div>
+                                <div className="mt-8 bg-gradient-to-br from-pink-400 to-rose-500 rounded-[28px] p-6 text-center text-white shadow-xl">
+                                    <span className="text-[10px] font-black opacity-60 uppercase tracking-widest">KẾT QUẢ</span>
+                                    <div className="text-5xl font-black italic tabular-nums">{h}m</div>
+                                </div>
+                                {/* NÚT LƯU VÀO BẢNG */}
+                                <button
+                                    onClick={addMeasurement}
+                                    disabled={measurements.length >= maxRecords}
+                                    className={`mt-4 w-full py-4 rounded-2xl font-black uppercase tracking-widest text-sm transition-all flex items-center justify-center gap-2
+                                        ${measurements.length >= maxRecords ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-pink-100 text-pink-600 hover:bg-pink-200'}`}
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                                    </svg>
+                                    Lưu vào bảng
+                                </button>
+                            </div>
+                        </div>
+                    </main>
+
+                    {/* NÚT MỞ BẢNG THỰC HÀNH */}
+                    <div className="max-w-7xl mx-auto px-4 mt-8">
+                        {!showTable ? (
+                            /* CHỈ BỌC CĂN GIỮA CHO CÁI NÚT Ở ĐÂY */
+                            <div className="flex justify-center">
+                                <button
+                                    onClick={() => setShowTable(true)}
+                                    /* - from-white to-cyan-50: Nền trắng chuyển sang xanh cyan cực nhạt
+                                       - text-cyan-600: Chữ màu xanh cyan rõ nét
+                                       - shadow-cyan-100: Bóng đổ cũng có ánh xanh nhẹ cho đồng bộ
+                                    */
+                                    className="w-full max-w-xs bg-gradient-to-r from-white to-cyan-50 border-2 border-white rounded-[24px] p-4 text-cyan-600 hover:from-cyan-50 hover:to-cyan-100 active:scale-95 transition-all group flex flex-row items-center justify-center gap-3 shadow-md shadow-cyan-100/50"
+                                >
+                                    <div className="p-2 bg-white rounded-full shadow-sm group-hover:scale-110 transition-transform duration-300">
+                                        <svg className="w-5 h-5 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                                        </svg>
+                                    </div>
+                                    <span className="font-black uppercase tracking-tighter text-[13px] whitespace-nowrap">Mở bảng thực hành đo</span>
+                                </button>
+                            </div>
+                        ) : (
+                            /* ĐÂY LÀ SAU DẤU " ) : ( " - CÁI BẢNG CỦA CẬU SẼ HIỆN Ở ĐÂY VÀ KHÔNG BỊ HẸP */
+                            <div className="bg-white rounded-[40px] shadow-2xl overflow-hidden border border-white p-6 md:p-10 animate-in slide-in-from-bottom-10 duration-500">
+                                {/* HEADER BẢNG: Tối ưu cho Mobile (không bị chèn ép) */}
+                                <div className="flex flex-col gap-5 mb-8">
+                                    {/* Dòng 1: Tiêu đề Bảng */}
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-2.5 h-8 bg-pink-400 rounded-full shadow-[0_0_10px_rgba(244,114,182,0.5)]"></div>
+                                        <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight text-slate-800">Bảng thực hành</h2>
+                                    </div>
+
+                                    {/* Dòng 2: Các nút điều khiển - Tự động xuống hàng trên điện thoại */}
+                                    <div className="flex flex-wrap items-center gap-3 w-full">
+                                        {/* Ô chọn số lần đo - Chiếm tối đa chỗ trống trên Mobile */}
+                                        <div className="flex-grow md:flex-none flex items-center bg-slate-50 p-1.5 rounded-2xl border border-slate-100 shadow-sm">
+                                            <span className="px-3 text-[10px] font-black text-slate-400 uppercase tracking-tighter">Số lần:</span>
+                                            <select
+                                                value={maxRecords}
+                                                onChange={(e) => setMaxRecords(parseInt(e.target.value))}
+                                                className="bg-white border-none outline-none font-bold text-pink-500 px-3 py-2 rounded-xl shadow-sm text-sm"
+                                            >
+                                                {[2,3,4,5,6,7,8,9,10,11,12,13,14,15].map(n => <option key={n} value={n}>{n} lần</option>)}
+                                            </select>
+                                        </div>
+
+                                        {/* Nút Xóa tất cả - Bo tròn hiện đại */}
+                                        <button
+                                            onClick={clearAll}
+                                            className="flex-1 md:flex-none px-6 py-3 rounded-2xl text-[11px] font-black uppercase tracking-widest text-white bg-rose-500 hover:bg-rose-600 active:scale-95 shadow-[0_8px_20px_-6px_rgba(244,63,94,0.5)] hover:shadow-[0_10px_25px_-4px_rgba(244,63,94,0.6)] transition-all duration-300"
+                                        >
+                                            Xóa tất cả
+                                        </button>
+
+                                    </div>
+                                </div>
+
+                                {/* THÂN BẢNG */}
+                                <div className="overflow-x-auto custom-scroll">
+                                    <table className="w-full border-separate border-spacing-y-3">
+                                        <thead>
+                                            <tr className="text-[11px] font-black lowercase tracking-widest text-slate-400 text-center">
+                                                <th className="pb-4 text-left px-4">Lần</th>
+                                                <th className="pb-4">a (m)</th>
+                                                <th className="pb-4">α (°)</th>
+                                                <th className="pb-4">d (m)</th>
+                                                <th className="pb-4 text-pink-400">h (m)</th>
+                                                <th className="pb-4 text-rose-500 font-black">Xóa</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="text-center font-medium">
+                                            {measurements.map((m, index) => (
+                                                <tr key={m.id} className="bg-slate-50/50 hover:bg-pink-50/30 transition-colors rounded-3xl overflow-hidden group">
+
+                                                    {/* 1. SỐ THỨ TỰ: Thu hẹp tối đa px-2 */}
+                                                    <td className="py-3 px-2 text-center rounded-l-2xl border-y border-l border-slate-100 text-[11px] text-slate-400 w-10">
+                                                        <span className="opacity-50">#</span>{index + 1}
+                                                    </td>
+
+                                                    {/* 2. CÁC ĐẠI LƯỢNG: Dùng px-1 để giãn cách siêu nhỏ, không bị dính chữ */}
+                                                    <td className="py-3 px-1 border-y border-slate-100 tabular-nums text-[14px] md:text-[15px] font-bold text-rose-900/80">{m.a}</td>
+                                                    <td className="py-3 px-1 border-y border-slate-100 tabular-nums text-[14px] md:text-[15px] font-bold text-rose-900/80">{m.alpha}</td>
+                                                    <td className="py-3 px-1 border-y border-slate-100 tabular-nums text-[14px] md:text-[15px] font-bold text-rose-900/80">{m.d}</td>
+
+                                                    {/* 3. KẾT QUẢ h: Cho chữ đậm hơn để nổi bật */}
+                                                    <td className="py-3 px-1 border-y border-slate-100 text-pink-500 text-[15px] md:text-[17px] font-black tabular-nums">
+                                                        {m.h}
+                                                    </td>
+
+                                                    {/* 4. NÚT XÓA MỚI: HIỆN ĐẠI & MẢNH MAI HƠN */}
+                                                    <td className="py-3 px-2 border-y border-r border-slate-100 rounded-r-2xl text-center w-12">
+                                                        <button
+                                                            onClick={() => removeMeasurement(m.id)}
+                                                            className="group/trash p-2 rounded-xl hover:bg-rose-50 active:scale-90 transition-all duration-200 mx-auto block"
+                                                        >
+                                                            <svg
+                                                                xmlns="http://www.w3.org/2000/svg"
+                                                                className="w-5 h-5 text-slate-300 group-hover/trash:text-rose-500 group-hover/trash:rotate-12 transition-all"
+                                                                fill="none"
+                                                                viewBox="0 0 24 24"
+                                                                stroke="currentColor"
+                                                                strokeWidth="1.6"
+                                                            >
+                                                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                            </svg>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                {/* BẮT ĐẦU PHẦN THAY THẾ */}
+                                {measurements.length >= maxRecords ? (
+                                    <div className="mt-10 bg-gradient-to-r from-pink-50 to-rose-50 rounded-[32px] p-8 flex flex-col md:flex-row justify-between items-center gap-6 border-2 border-white shadow-sm animate-in zoom-in duration-500">
+                                        <div className="space-y-1 text-center md:text-left">
+                                            <h3 className="text-pink-600 font-black uppercase tracking-tighter text-lg italic">Kết quả trung bình</h3>
+                                            <p className="text-[10px] font-bold text-pink-400">Trung bình cộng {maxRecords} lần đo</p>
+                                        </div>
+                                        <div className="flex items-baseline gap-2">
+                                            <span className="text-6xl font-black italic text-pink-500 drop-shadow-md">{averageH}</span>
+                                            <span className="text-2xl font-black text-pink-300 italic">m</span>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    
+                                    <div className="mt-10 bg-white/50 rounded-[32px] p-8 border-2 border-solid border-pink-100 flex flex-col items-center gap-4">
+                                            <div className="flex justify-between w-full max-w-md">
+                                                <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest text-[9px]">Tiến độ:</span>
+                                                <span className="text-[11px] font-black text-pink-500">{measurements.length} / {maxRecords} lần</span>
+                                            </div>
+                                            <div className="w-full max-w-md h-3 bg-slate-200 rounded-full overflow-hidden shadow-inner">
+                                                <div
+                                                    className="h-full bg-gradient-to-r from-pink-300 to-rose-400 transition-all duration-700"
+                                                    style={{ width: `${(measurements.length / maxRecords) * 100}%` }}
+                                                ></div>
+                                            </div>
+                                            <p className="text-[10px] font-bold text-slate-400 italic">Đo thêm {maxRecords - measurements.length} lần nữa!</p>
+                                        </div>
+                                    )}
+                                {/* KẾT THÚC PHẦN THAY THẾ */}
+
+                                {/* NÚT ĐÓNG BẢNG - TONE CYAN ĐỒNG BỘ */}
+                                <div className="mt-6 pt-4 border-t border-slate-100 flex justify-center">
+                                    <button
+                                        onClick={() => setShowTable(false)}
+                                        /* Đã chuyển từ Hồng sang Cyan cực nhạt, giữ nguyên độ nén chữ */
+                                        className="w-full max-w-xs bg-gradient-to-r from-white to-cyan-50 border-2 border-white rounded-[24px] p-4 text-cyan-600 hover:from-cyan-50 hover:to-cyan-100 active:scale-95 transition-all group flex flex-row items-center justify-center gap-3 shadow-md shadow-cyan-100/30"
+                                    >
+                                        <div className="p-2 bg-white rounded-full shadow-sm group-hover:rotate-90 transition-transform duration-300">
+                                            {/* Icon dấu X màu Cyan */}
+                                            <svg className="w-5 h-5 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="3">
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                            </svg>
+                                        </div>
+                                        <span className="font-black uppercase tracking-tighter text-[13px] whitespace-nowrap">Đóng bảng thực hành</span>
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="mt-12 text-center pb-8 opacity-40">
+                         <button onClick={() => { setA(1.5); setD(10); setAlpha(35); clearAll(); }} className="px-6 py-2.5 rounded-2xl bg-white/10 text-white font-bold text-[10px] uppercase tracking-[0.2em] hover:bg-white/30 transition-all">RESET</button>
+                    </div>
+
+                    {/* PHẦN FOOTER ĐỘC LẬP TĨNH (HTML RỜI) */}
+                    <footer className="w-full bg-transparent text-slate-100 py-10 px-4">
+                    <div className="max-w-xl mx-auto flex flex-col items-center text-center space-y-4">
+                        <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.3em] text-rose-400">
+                        [ MÔ HÌNH STEM TOÁN 9 ]
+                        </div>
+
+                        <div className="w-12 h-0.5 bg-white/20 rounded-full"></div>
+
+                        <p className="text-[12px] font-semibold leading-relaxed tracking-wider">
+                        Du - Phat - Hau - Truong
+                        </p>
+
+                        <div className="flex items-center gap-4 text-[9px] font-semibold tracking-[0.1em] uppercase text-slate-200">
+                        <span className="drop-shadow-sm">IDEA & DESIGN: Space_D</span>
+                        <div className="w-1 h-1 bg-white/20 rounded-full"></div>
+                        <span className="drop-shadow-sm">CODE: GEMINI_AI</span>
+                        <div className="w-1 h-1 bg-white/20 rounded-full"></div>
+                        <span className="drop-shadow-sm">TYPE: WEB_STEM</span>
+                        </div>
+                        <div className="w-12 h-0.5 bg-white/20 rounded-full"></div>
+                        <div className="w-full border-t border-white/10 pt-4">
+                        <p className="text-[9px] font-semibold text-slate-300 uppercase tracking-[0.3em]">
+                            © 2026 clinomterstemmath9.pythonanywhere.com
+                        </p>
+                        </div>
+                    </div>
+                    </footer>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+    {% endraw %}
+</body>
+</html>
